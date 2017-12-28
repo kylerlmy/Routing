@@ -3,6 +3,7 @@
 
 using System;
 using System.Linq;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -16,7 +17,7 @@ using Microsoft.Extensions.Options;
 
 namespace Microsoft.AspNetCore.Routing.Performance
 {
-    public class RoutingBenchmark
+    public class ReproRoutingBenchmark
     {
         private const int NumberOfRequestTypes = 3;
         private const int Iterations = 100;
@@ -24,43 +25,72 @@ namespace Microsoft.AspNetCore.Routing.Performance
         private readonly IRouter _treeRouter;
         private readonly RequestEntry[] _requests;
 
-        public RoutingBenchmark()
+        public ReproRoutingBenchmark()
         {
             var handler = new RouteHandler((next) => Task.FromResult<object>(null));
- 
+
             var treeBuilder = new TreeRouteBuilder(
                 NullLoggerFactory.Instance,
                 UrlEncoder.Default,
                 new DefaultObjectPool<UriBuildingContext>(new UriBuilderContextPooledObjectPolicy(UrlEncoder.Default)),
                 new DefaultInlineConstraintResolver(new OptionsManager<RouteOptions>(new OptionsFactory<RouteOptions>(Enumerable.Empty<IConfigureOptions<RouteOptions>>(), Enumerable.Empty<IPostConfigureOptions<RouteOptions>>()))));
 
-            treeBuilder.MapInbound(handler, TemplateParser.Parse("api/Widgets"), "default", 0);
-            treeBuilder.MapInbound(handler, TemplateParser.Parse("api/Widgets/{id}"), "default", 0);
-            treeBuilder.MapInbound(handler, TemplateParser.Parse("api/Widgets/search/{term}"), "default", 0);
-            treeBuilder.MapInbound(handler, TemplateParser.Parse("admin/users/{id}"), "default", 0);
-            treeBuilder.MapInbound(handler, TemplateParser.Parse("admin/users/{id}/manage"), "default", 0);
+            var random = new Random(Seed: 42); // Be predictable
+
+            var letters = new char[26 * 2];          
+            for (var i = 0; i < 26; i++)
+            {
+                letters[i] = (char)('a' + i);
+            }
+            for (var i = 0; i < 26; i++)
+            {
+                letters[i + 26] = (char)('A' + i);
+            }
+
+            var routes = new string[110];
+            for (var i = 0; i < routes.Length; i++)
+            {
+                // Generate a random route of the format `storedprocedure/[a-zA-Z]8-10`
+                var builder = new StringBuilder();
+                builder.Append("storedprocedure/");
+
+                var letterCount = random.Next(8, 11);
+                for (var j = 0; j < letterCount; j++)
+                {
+                    var c = letters[random.Next(0, 26 * 2)];
+                    builder.Append(c);
+                }
+
+                routes[i] = builder.ToString();
+            }
+
+            for (var i = 0; i < routes.Length; i++)
+            {
+                treeBuilder.MapInbound(handler, TemplateParser.Parse(routes[i]), "default", 0);
+            }
 
             _treeRouter = treeBuilder.Build();
 
+            // Two of these will won't match any of these routes, but will exercise different paths
             _requests = new RequestEntry[NumberOfRequestTypes];
 
             _requests[0].HttpContext = new DefaultHttpContext();
             _requests[0].HttpContext.Request.Path = "/api/Widgets/5";
-            _requests[0].IsMatch = true;
-            _requests[0].Values = new RouteValueDictionary(new { id = 5 });
+            _requests[0].IsMatch = false;
+            _requests[0].Values = new RouteValueDictionary();
 
             _requests[1].HttpContext = new DefaultHttpContext();
-            _requests[1].HttpContext.Request.Path = "/admin/users/17/mAnage";
-            _requests[1].IsMatch = true;
-            _requests[1].Values = new RouteValueDictionary(new { id = 17 });
+            _requests[1].HttpContext.Request.Path = "/" + routes[routes.Length - 1] + "/foo";
+            _requests[1].IsMatch = false;
+            _requests[1].Values = new RouteValueDictionary();
 
             _requests[2].HttpContext = new DefaultHttpContext();
-            _requests[2].HttpContext.Request.Path = "/api/Widgets/search/dldldldldld/ddld";
-            _requests[2].IsMatch = false;
+            _requests[2].HttpContext.Request.Path = "/" + routes[routes.Length - 1];
+            _requests[2].IsMatch = true;
             _requests[2].Values = new RouteValueDictionary();
         }
 
-        [Benchmark(Description = "Attribute Routing", OperationsPerInvoke = Iterations * NumberOfRequestTypes)]
+        [Benchmark(Description = "Attribute Routing (many routes)", OperationsPerInvoke = Iterations * NumberOfRequestTypes)]
         public async Task AttributeRouting()
         {
             for (var i = 0; i < Iterations; i++)
