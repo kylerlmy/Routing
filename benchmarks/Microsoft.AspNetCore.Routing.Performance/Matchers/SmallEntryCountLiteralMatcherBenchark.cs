@@ -12,6 +12,7 @@ namespace Microsoft.AspNetCore.Routing.Performance.Matchers
         private readonly Endpoint PlaintextEndpoint = new Endpoint();
 
         private Matcher _baseline;
+        private Matcher _dfa;
         private Matcher _instruction;
         private Matcher _route;
         private Matcher _tree;
@@ -22,6 +23,7 @@ namespace Microsoft.AspNetCore.Routing.Performance.Matchers
         public void Setup()
         {
             _baseline = SetupMatcher(BaselineMatcher.CreateBuilder());
+            _dfa = SetupMatcher(DfaMatcher.CreateBuilder());
             _instruction = SetupMatcher(InstructionMatcher.CreateBuilder());
             _route = SetupMatcher(RouteMatcher.CreateBuilder());
             _tree = SetupMatcher(TreeRouterMatcher.CreateBuilder());
@@ -52,6 +54,13 @@ namespace Microsoft.AspNetCore.Routing.Performance.Matchers
         public async Task Baseline()
         {
             var endpoint = await _baseline.MatchAsync(_httpContext);
+            Validate(PlaintextEndpoint, endpoint);
+        }
+
+        [Benchmark]
+        public async Task Dfa()
+        {
+            var endpoint = await _dfa.MatchAsync(_httpContext);
             Validate(PlaintextEndpoint, endpoint);
         }
 
